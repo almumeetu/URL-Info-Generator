@@ -1,0 +1,8 @@
+{
+  "name": "LinkScout",
+  "description": "AI-powered website analyzer that extracts titles, descriptions, categories, and tech stacks from any URL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
