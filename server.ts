@@ -43,63 +43,86 @@ app.post("/api/analyze", async (req, res) => {
 
   try {
     const formattedUrl = url.startsWith("http") ? url : `https://${url}`;
+    
+    // Robust production fetch with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+
     const response = await fetch(formattedUrl, {
+      signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (LinkScout/1.0; AI Analysis)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 LinkScoutEnterprise/2.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
       },
-    });
+    }).finally(() => clearTimeout(timeout));
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.statusText}`);
+      throw new Error(`Target unreachable: ${response.status} ${response.statusText}`);
     }
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // Basic Extracting
+    // Extraction
     const title = $("title").text() || $("meta[property='og:title']").attr("content") || "";
     const description = $("meta[name='description']").attr("content") || $("meta[property='og:description']").attr("content") || "";
     const favicon = $("link[rel='shortcut icon']").attr("href") || $("link[rel='icon']").attr("href") || "";
+    const themeColor = $("meta[name='theme-color']").attr("content") || "";
+    const canonical = $("link[rel='canonical']").attr("href") || "";
+    const robots = $("meta[name='robots']").attr("content") || "index, follow";
+    const language = $("html").attr("lang") || "en";
     
-    // Get a bit of the body text to help Gemini identify tech stack/content
-    const bodyExcerpt = $("body").text().replace(/\s+/g, ' ').substring(0, 2000);
+    const h1s = $("h1").map((i, el) => $(el).text().trim()).get();
+    const h2s = $("h2").map((i, el) => $(el).text().trim()).get().slice(0, 8);
+    const totalImages = $("img").length;
+    const missingAltCount = $("img:not([alt])").length;
+
+    const serverHeader = response.headers.get("server") || "";
+    const powerByHeader = response.headers.get("x-powered-by") || "";
+    const bodyExcerpt = $("body").text().replace(/\s+/g, ' ').substring(0, 4500);
 
     const prompt = `
-      Analyze the following website metadata and content to provide structured information.
+      You are an elite web architect performing a Technical Reconnaissance for a premium auditing firm.
+      Website Context:
       URL: ${formattedUrl}
       Title: ${title}
       Description: ${description}
-      Body Excerpt: ${bodyExcerpt}
+      Security Hints: ${serverHeader} | ${powerByHeader}
+      Structure: ${h1s.length} H1s, ${totalImages} images.
 
-      Respond with a JSON object specifically containing these fields:
-      - title: The most accurate title.
-      - description: A concise description of what the project/site does.
-      - category: The category (e.g., E-commerce, SaaS, Portfolio, Blog, etc.).
-      - techStack: A comma-separated list of identified technologies (e.g., React, Next.js, Tailwind, etc.).
-      - githubUrl: If found in the content, provide the GitHub URL. If not, null.
-      - liveUrl: The provided URL.
+      Analyze the following content to identify the exact technology stack, infrastructure, and provide a 0-100 SEO Audit score.
+      
+      Content Excerpt: ${bodyExcerpt}
 
-      Only return the JSON object, nothing else.
+      Return a STRICT JSON object with these fields:
+      - title, description, category, techStack (comma list), infrastructure, cms, analytics, seoKeywords, performanceGrade, targetAudience.
+      - seoAudit: { score, crawlability, indexability, topIssues (array), recommendations (array) }
+      - githubUrl, liveUrl.
+
+      Be extremely precise with the technology stack (e.g., identify specific UI libs like Radix, HeadlessUI if possible).
+      Return ONLY the raw JSON object.
     `;
 
-    const result = await getAI().models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+    const aiResult = await getAI().models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
-    const text = result.text;
-    // Clean JSON from potential markdown blocks
-    const jsonStr = text.replace(/```json|```/g, "").trim();
-    const data = JSON.parse(jsonStr);
+    const aiText = aiResult.candidates[0].content.parts[0].text;
+    const cleanJson = aiText.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(cleanJson);
 
     res.json({
       ...data,
-      favicon: favicon ? (favicon.startsWith('http') ? favicon : new URL(favicon, formattedUrl).href) : null
+      favicon: favicon ? (favicon.startsWith('http') ? favicon : new URL(favicon, formattedUrl).href) : null,
+      themeColor
     });
 
   } catch (error: any) {
-    console.error("Analysis Error:", error);
-    res.status(500).json({ error: error.message || "Failed to analyze website" });
+    console.error("Enterprise Analysis Failure:", error);
+    res.status(500).json({ 
+      error: error.name === 'AbortError' ? "Target site took too long to respond." : (error.message || "Deep analysis failed.") 
+    });
   }
 });
 
@@ -119,8 +142,13 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Enterprise Intelligence Engine running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+// Only start the server if we're not being required as a module (e.g. for Vercel)
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

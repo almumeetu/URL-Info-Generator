@@ -1,6 +1,6 @@
 {
-  "name": "LinkScout",
-  "description": "AI-powered website analyzer that extracts titles, descriptions, categories, and tech stacks from any URL.",
+  "name": "LinkScout Enterprise",
+  "description": "Professional technical intelligence platform for deep website analysis, architectural scouting, and SEO auditing.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
