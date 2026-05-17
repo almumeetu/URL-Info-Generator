@@ -1,0 +1,4 @@
+ignoredBuiltDependencies:
+  - '@google/genai'
+  - esbuild
+  - protobufjs
