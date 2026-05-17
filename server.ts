@@ -82,7 +82,7 @@ app.post("/api/analyze", async (req, res) => {
     const bodyExcerpt = $("body").text().replace(/\s+/g, ' ').substring(0, 4500);
 
     const prompt = `
-      You are an elite web architect performing a Technical Reconnaissance for a premium auditing firm.
+      You are an elite web architect. Perform a Technical Reconnaissance for a premium auditing firm.
       Website Context:
       URL: ${formattedUrl}
       Title: ${title}
@@ -90,7 +90,7 @@ app.post("/api/analyze", async (req, res) => {
       Security Hints: ${serverHeader} | ${powerByHeader}
       Structure: ${h1s.length} H1s, ${totalImages} images.
 
-      Analyze the following content to identify the exact technology stack, infrastructure, and provide a 0-100 SEO Audit score.
+      Analyze the content to identify the technology stack, infrastructure, and provide a 0-100 SEO Audit score.
       
       Content Excerpt: ${bodyExcerpt}
 
@@ -99,18 +99,32 @@ app.post("/api/analyze", async (req, res) => {
       - seoAudit: { score, crawlability, indexability, topIssues (array), recommendations (array) }
       - githubUrl, liveUrl.
 
-      Be extremely precise with the technology stack (e.g., identify specific UI libs like Radix, HeadlessUI if possible).
-      Return ONLY the raw JSON object.
+      Only return the raw JSON object. No conversational text.
     `;
 
-    const aiResult = await getAI().models.generateContent({
-      model: "gemini-2.0-flash-exp",
+    const aiResult = await getAI().models.generateContent({ 
+      model: "gemini-3-flash-preview",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json"
+      }
     });
 
-    const aiText = aiResult.candidates[0].content.parts[0].text;
-    const cleanJson = aiText.replace(/```json|```/g, "").trim();
-    const data = JSON.parse(cleanJson);
+    const aiText = aiResult.text;
+    
+    let data;
+    try {
+      if (!aiText) throw new Error("AI returned empty response");
+      data = JSON.parse(aiText.replace(/```json|```/g, "").trim());
+    } catch (e) {
+      console.error("JSON Parsing failed, attempting loose match", e);
+      const jsonMatch = aiText?.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("AI returned invalid data format");
+      }
+    }
 
     res.json({
       ...data,
