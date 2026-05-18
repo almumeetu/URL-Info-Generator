@@ -1,28 +1,9 @@
-import express from "express";
-import path from "path";
-import { createServer as createViteServer } from "vite";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 import * as cheerio from "cheerio";
-import cors from "cors";
-import dotenv from "dotenv";
 
-dotenv.config({ path: ".env.local" });
-dotenv.config();
-
-const app = express();
-const PORT = 3000;
-
-app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-
-// Global error handler — always returns JSON, never HTML
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: err.message || "Internal server error" });
-});
-
-let genAI: any = null;
-function getAI() {
+let genAI: GoogleGenAI | null = null;
+function getAI(): GoogleGenAI {
   if (!genAI) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("GEMINI_API_KEY is not set in environment variables.");
@@ -31,8 +12,16 @@ function getAI() {
   return genAI;
 }
 
-app.post("/api/analyze", async (req, res) => {
-  const { url } = req.body;
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ error: "URL is required" });
 
   try {
@@ -43,52 +32,52 @@ app.post("/api/analyze", async (req, res) => {
     const response = await fetch(formattedUrl, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
       },
     }).finally(() => clearTimeout(timeout));
 
-    if (!response.ok) throw new Error(`Target unreachable: ${response.status} ${response.statusText}`);
+    if (!response.ok)
+      throw new Error(`Target unreachable: ${response.status} ${response.statusText}`);
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
     // ── Core Meta ──────────────────────────────────────────────────────────────
-    const title        = $("title").text().trim() || $("meta[property='og:title']").attr("content") || "";
-    const description  = $("meta[name='description']").attr("content") || $("meta[property='og:description']").attr("content") || "";
-    const canonical    = $("link[rel='canonical']").attr("href") || "";
-    const robots       = $("meta[name='robots']").attr("content") || "index, follow";
-    const language     = $("html").attr("lang") || "";
-    const charset      = $("meta[charset]").attr("charset") || $("meta[http-equiv='Content-Type']").attr("content") || "";
-    const viewport     = $("meta[name='viewport']").attr("content") || "";
-    const themeColor   = $("meta[name='theme-color']").attr("content") || "";
-    const author       = $("meta[name='author']").attr("content") || "";
-    const generator    = $("meta[name='generator']").attr("content") || "";
-    const rating       = $("meta[name='rating']").attr("content") || "";
+    const title       = $("title").text().trim() || $("meta[property='og:title']").attr("content") || "";
+    const description = $("meta[name='description']").attr("content") || $("meta[property='og:description']").attr("content") || "";
+    const canonical   = $("link[rel='canonical']").attr("href") || "";
+    const robots      = $("meta[name='robots']").attr("content") || "index, follow";
+    const language    = $("html").attr("lang") || "";
+    const charset     = $("meta[charset]").attr("charset") || $("meta[http-equiv='Content-Type']").attr("content") || "";
+    const viewport    = $("meta[name='viewport']").attr("content") || "";
+    const themeColor  = $("meta[name='theme-color']").attr("content") || "";
+    const author      = $("meta[name='author']").attr("content") || "";
+    const generator   = $("meta[name='generator']").attr("content") || "";
 
     // ── Open Graph ─────────────────────────────────────────────────────────────
-    const ogTitle       = $("meta[property='og:title']").attr("content") || "";
-    const ogDescription = $("meta[property='og:description']").attr("content") || "";
-    const ogImage       = $("meta[property='og:image']").attr("content") || "";
-    const ogType        = $("meta[property='og:type']").attr("content") || "";
-    const ogSiteName    = $("meta[property='og:site_name']").attr("content") || "";
-    const ogUrl         = $("meta[property='og:url']").attr("content") || "";
-    const ogLocale      = $("meta[property='og:locale']").attr("content") || "";
+    const ogTitle    = $("meta[property='og:title']").attr("content") || "";
+    const ogImage    = $("meta[property='og:image']").attr("content") || "";
+    const ogType     = $("meta[property='og:type']").attr("content") || "";
+    const ogSiteName = $("meta[property='og:site_name']").attr("content") || "";
+    const ogUrl      = $("meta[property='og:url']").attr("content") || "";
+    const ogLocale   = $("meta[property='og:locale']").attr("content") || "";
 
     // ── Twitter Card ───────────────────────────────────────────────────────────
-    const twitterCard        = $("meta[name='twitter:card']").attr("content") || "";
-    const twitterSite        = $("meta[name='twitter:site']").attr("content") || "";
-    const twitterCreator     = $("meta[name='twitter:creator']").attr("content") || "";
-    const twitterTitle       = $("meta[name='twitter:title']").attr("content") || "";
-    const twitterDescription = $("meta[name='twitter:description']").attr("content") || "";
-    const twitterImage       = $("meta[name='twitter:image']").attr("content") || "";
+    const twitterCard    = $("meta[name='twitter:card']").attr("content") || "";
+    const twitterSite    = $("meta[name='twitter:site']").attr("content") || "";
+    const twitterCreator = $("meta[name='twitter:creator']").attr("content") || "";
+    const twitterImage   = $("meta[name='twitter:image']").attr("content") || "";
 
     // ── Favicon ────────────────────────────────────────────────────────────────
     const faviconRaw =
       $("link[rel='apple-touch-icon']").attr("href") ||
       $("link[rel='shortcut icon']").attr("href") ||
-      $("link[rel='icon']").attr("href") || "";
+      $("link[rel='icon']").attr("href") ||
+      "";
 
     // ── Structured Data ────────────────────────────────────────────────────────
     const jsonLdScripts: string[] = [];
@@ -100,8 +89,9 @@ app.post("/api/analyze", async (req, res) => {
     // ── Links & Social ─────────────────────────────────────────────────────────
     const allLinks: string[] = [];
     $("a[href]").each((_i, el) => { allLinks.push($(el).attr("href") || ""); });
-    const externalLinks = allLinks.filter(l => l.startsWith("http") && !l.includes(new URL(formattedUrl).hostname)).length;
-    const internalLinks = allLinks.filter(l => !l.startsWith("http") || l.includes(new URL(formattedUrl).hostname)).length;
+    const hostname = new URL(formattedUrl).hostname;
+    const externalLinks = allLinks.filter(l => l.startsWith("http") && !l.includes(hostname)).length;
+    const internalLinks = allLinks.filter(l => !l.startsWith("http") || l.includes(hostname)).length;
 
     const socialLinks: Record<string, string> = {};
     const socialPatterns: Record<string, RegExp> = {
@@ -125,9 +115,9 @@ app.post("/api/analyze", async (req, res) => {
     const h3s = $("h3").map((_i, el) => $(el).text().trim()).get().filter(Boolean).slice(0, 8);
 
     // ── Images ─────────────────────────────────────────────────────────────────
-    const totalImages    = $("img").length;
-    const missingAlt     = $("img:not([alt])").length;
-    const lazyImages     = $("img[loading='lazy']").length;
+    const totalImages = $("img").length;
+    const missingAlt  = $("img:not([alt])").length;
+    const lazyImages  = $("img[loading='lazy']").length;
 
     // ── Performance Signals ────────────────────────────────────────────────────
     const totalScripts   = $("script").length;
@@ -141,7 +131,6 @@ app.post("/api/analyze", async (req, res) => {
     // ── Security Headers ───────────────────────────────────────────────────────
     const serverHeader      = response.headers.get("server") || "";
     const poweredByHeader   = response.headers.get("x-powered-by") || "";
-    const contentType       = response.headers.get("content-type") || "";
     const cacheControl      = response.headers.get("cache-control") || "";
     const strictTransport   = response.headers.get("strict-transport-security") || "";
     const xFrameOptions     = response.headers.get("x-frame-options") || "";
@@ -156,10 +145,10 @@ app.post("/api/analyze", async (req, res) => {
     const bodyExcerpt = bodyText.substring(0, 5000);
 
     // ── Accessibility ──────────────────────────────────────────────────────────
-    const hasSkipLink    = $("a[href='#main'], a[href='#content'], a[href='#skip']").length > 0;
-    const hasAriaLabels  = $("[aria-label]").length;
-    const hasRoles       = $("[role]").length;
-    const hasLangAttr    = !!language;
+    const hasSkipLink        = $("a[href='#main'], a[href='#content'], a[href='#skip']").length > 0;
+    const hasAriaLabels      = $("[aria-label]").length;
+    const hasRoles           = $("[role]").length;
+    const hasLangAttr        = !!language;
     const inputsWithoutLabel = $("input:not([aria-label]):not([id])").length;
 
     const prompt = `
@@ -177,11 +166,9 @@ Charset: ${charset || "not set"}
 Viewport: ${viewport || "not set"}
 Canonical: ${canonical || "NOT SET — penalize SEO"}
 Robots: ${robots}
-Rating: ${rating}
 
 --- Open Graph ---
 og:title: ${ogTitle}
-og:description: ${ogDescription}
 og:image: ${ogImage ? "present" : "MISSING"}
 og:type: ${ogType}
 og:site_name: ${ogSiteName}
@@ -192,7 +179,6 @@ og:locale: ${ogLocale}
 twitter:card: ${twitterCard || "MISSING"}
 twitter:site: ${twitterSite}
 twitter:creator: ${twitterCreator}
-twitter:title: ${twitterTitle}
 twitter:image: ${twitterImage ? "present" : "MISSING"}
 
 --- Heading Structure ---
@@ -277,54 +263,39 @@ Analyze ALL the above data deeply. Return a STRICT JSON object with EXACTLY thes
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" },
       }),
-      new Promise((_, reject) =>
+      new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("AI analysis timed out. Please try again.")), 55000)
       ),
-    ]) as Awaited<ReturnType<typeof getAI extends () => infer R ? R : never>>;
+    ]);
 
-    const aiText = aiResult.text;
+    const aiText = (aiResult as any).text;
     let data: Record<string, unknown>;
     try {
       if (!aiText) throw new Error("AI returned empty response");
       data = JSON.parse(aiText.replace(/```json|```/g, "").trim());
-    } catch (e) {
+    } catch {
       const jsonMatch = aiText?.match(/\{[\s\S]*\}/);
-      if (jsonMatch) { data = JSON.parse(jsonMatch[0]); }
-      else throw new Error("AI returned invalid data format");
+      if (jsonMatch) {
+        data = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("AI returned invalid data format");
+      }
     }
 
     const resolvedFavicon = faviconRaw
-      ? (faviconRaw.startsWith("http") ? faviconRaw : new URL(faviconRaw, formattedUrl).href)
+      ? faviconRaw.startsWith("http")
+        ? faviconRaw
+        : new URL(faviconRaw, formattedUrl).href
       : null;
 
-    res.json({ ...data, favicon: resolvedFavicon, themeColor, rawSocialLinks: socialLinks });
-
+    return res.status(200).json({ ...data, favicon: resolvedFavicon, themeColor, rawSocialLinks: socialLinks });
   } catch (error: any) {
     console.error("Analysis Failure:", error);
-    res.status(500).json({
-      error: error.name === "AbortError"
-        ? "Target site took too long to respond."
-        : (error.message || "Deep analysis failed."),
+    return res.status(500).json({
+      error:
+        error.name === "AbortError"
+          ? "Target site took too long to respond."
+          : error.message || "Deep analysis failed.",
     });
   }
-});
-
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
-    // API routes are already registered above — Vite middleware goes LAST
-    // so /api/* hits Express before Vite can intercept it
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
-  }
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`LinkScout Enterprise running on http://localhost:${PORT}`);
-  });
 }
-
-if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) startServer();
-
-export default app;
